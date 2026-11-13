@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Experimental interactive OpenCloud HTTP/3 setup for host Nginx and Docker.
+"""Experimental interactive OpenCloud HTTP/3 setup for Nginx or Compose Traefik.
 
 No certificates or credentials are embedded. Requires the companion rpxy binary,
-existing Let's Encrypt certificate files, host Nginx, Docker and Python 3.9+.
-Only a host Nginx listener on UDP 443 is migrated; other owners are rejected.
+existing certificates, Docker and Python 3.9+. The complete bundle includes a
+Traefik adapter; this file alone retains the original host Nginx mode.
 The real router has been tested in an isolated lab; production cutover has not.
 """
 from __future__ import annotations
@@ -366,6 +366,10 @@ def check_previous_attempt() -> bool:
 
 def rollback(state: Path = STATE) -> None:
     manifest = json.loads((state / 'manifest.json').read_text())
+    if manifest.get('backend') == 'traefik':
+        import traefik_setup
+        traefik_setup.rollback(state)
+        return
     changed = []
     for item in manifest['files']:
         path = Path(item['path'])
@@ -547,8 +551,25 @@ def main() -> int:
         if sys.argv[1:] == ['--rollback']:
             if os.geteuid() != 0: raise RuntimeError('Run rollback as root with sudo.')
             rollback()
-        elif not sys.argv[1:]: install()
-        else: raise RuntimeError(f'Usage: {sys.argv[0]} [--rollback]')
+        elif sys.argv[1:] == ['--sync-cert']:
+            if os.geteuid() != 0: raise RuntimeError('Run certificate sync as root.')
+            import traefik_setup
+            traefik_setup.sync_certificate()
+        elif sys.argv[1:] == ['--traefik']:
+            import traefik_setup
+            traefik_setup.install()
+        elif sys.argv[1:] == ['--traefik-shared-router']:
+            import traefik_setup
+            traefik_setup.install(shared_router=True)
+        elif not sys.argv[1:]:
+            # Keep the original standalone Nginx script usable. Full release bundles
+            # also recognize a Traefik container actually publishing TCP 443.
+            if (Path(__file__).parent / 'traefik_setup.py').is_file():
+                import traefik_setup
+                if traefik_setup.detected(): traefik_setup.install()
+                else: install()
+            else: install()
+        else: raise RuntimeError(f'Usage: {sys.argv[0]} [--traefik | --traefik-shared-router | --rollback | --sync-cert]')
         return 0
     except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError, KeyboardInterrupt, EOFError) as exc:
         print(f'ERROR: {exc}', file=sys.stderr)

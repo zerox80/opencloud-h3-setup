@@ -1,0 +1,124 @@
+diff --git a/rpxy-bin/src/config/toml.rs b/rpxy-bin/src/config/toml.rs
+index 607f276..4fa7e27 100644
+--- a/rpxy-bin/src/config/toml.rs
++++ b/rpxy-bin/src/config/toml.rs
+@@ -134,6 +134,8 @@ fn parse_body_size_string(s: &str, key_name: &str) -> Result<Option<usize>, anyh
+ pub struct ConfigToml {
+   pub listen_port: Option<u16>,
+   pub listen_port_tls: Option<u16>,
++  /// Installer extension: bind UDP only, leaving the same TCP port to Traefik.
++  pub h3_only: Option<bool>,
+   pub listen_address_v4: Option<OneOrMany>,
+   pub listen_address_v6: Option<OneOrMany>,
+   pub listen_ipv6: Option<bool>,
+@@ -412,8 +414,14 @@ impl TryInto<ProxyConfig> for &ConfigToml {
+       http_port: self.listen_port,
+       https_port: self.listen_port_tls,
+       public_https_port: self.public_https_port.or(self.listen_port_tls),
++      h3_only: self.h3_only.unwrap_or(false),
+       ..Default::default()
+     };
++    if proxy_config.h3_only {
++      ensure!(cfg!(any(feature = "http3-quinn", feature = "http3-s2n")), "h3_only requires an HTTP/3-enabled build");
++      ensure!(self.listen_port.is_none() && self.listen_port_tls.is_some(), "h3_only requires listen_port_tls and forbids listen_port");
++      ensure!(self.experimental.as_ref().and_then(|exp| exp.h3.as_ref()).is_some(), "h3_only requires experimental.h3");
++    }
+     ensure!(
+       proxy_config.http_port.is_some() || proxy_config.https_port.is_some(),
+       anyhow!("Either/Both of http_port or https_port must be specified")
+@@ -1993,4 +2001,22 @@ mod tests {
+     "#;
+     assert!(toml::from_str::<ConfigToml>(toml_str).is_ok());
+   }
++
++  #[test]
++  fn h3_only_requires_an_h3_endpoint_and_no_http_listener() {
++    for text in ["h3_only = true\nlisten_port_tls = 443", "h3_only = true\nlisten_port = 80\nlisten_port_tls = 443\n[experimental.h3]"] {
++      let config = ConfigToml::parse(text).unwrap();
++      let result: Result<ProxyConfig, _> = (&config).try_into();
++      assert!(result.is_err());
++    }
++  }
++
++  #[cfg(any(feature = "http3-quinn", feature = "http3-s2n"))]
++  #[test]
++  fn h3_only_uses_the_tls_port_without_a_tcp_listener() {
++    let config = ConfigToml::parse("h3_only = true\nlisten_port_tls = 443\n[experimental.h3]").unwrap();
++    let result: ProxyConfig = (&config).try_into().unwrap();
++    assert!(result.h3_only && result.http3);
++    assert_eq!(result.https_port, Some(443));
++  }
+ }
+diff --git a/rpxy-lib/src/globals.rs b/rpxy-lib/src/globals.rs
+index 65b2e91..cdb38a6 100644
+--- a/rpxy-lib/src/globals.rs
++++ b/rpxy-lib/src/globals.rs
+@@ -56,6 +56,8 @@ pub struct ProxyConfig {
+   pub http_port: Option<u16>,
+   /// https port listening for TLS by default
+   pub https_port: Option<u16>,
++  /// Installer extension: serve QUIC without binding the corresponding TCP port.
++  pub h3_only: bool,
+   /// Client-visible HTTPS/H3 port advertised to downstream clients.
+   /// This is used when the reverse proxy is behind a middlebox mapping the client-visible HTTPS port A
+   /// to the reverse proxy's local HTTPS port B. Typically, it is the container environment.
+@@ -140,6 +142,7 @@ impl Default for ProxyConfig {
+       listen_sockets: Vec::new(),
+       http_port: None,
+       https_port: None,
++      h3_only: false,
+       public_https_port: None,
+       tcp_listen_backlog: TCP_LISTEN_BACKLOG,
+ 
+diff --git a/rpxy-lib/src/lib.rs b/rpxy-lib/src/lib.rs
+index 2de7bfe..ea449b6 100644
+--- a/rpxy-lib/src/lib.rs
++++ b/rpxy-lib/src/lib.rs
+@@ -223,7 +223,9 @@ pub async fn entrypoint(
+       (true, false) => ListenerKind::HttpsV6,
+     };
+     let listener_spec = ListenerSpecBuilder::default().kind(kind).listening_on(listening_on).build();
+-    listener_specs.push(listener_spec);
++    if !globals.proxy_config.h3_only {
++      listener_specs.push(listener_spec);
++    }
+ 
+     #[cfg(any(feature = "http3-quinn", feature = "http3-s2n"))]
+     if tls_enabled && globals.proxy_config.http3 {
+diff --git a/rpxy-lib/src/proxy/socket.rs b/rpxy-lib/src/proxy/socket.rs
+index 88981a9..5fbd964 100644
+--- a/rpxy-lib/src/proxy/socket.rs
++++ b/rpxy-lib/src/proxy/socket.rs
+@@ -56,7 +56,7 @@ pub(super) fn bind_tcp_socket(listening_on: &SocketAddr) -> RpxyResult<TcpSocket
+ #[cfg(feature = "http3-quinn")]
+ /// Bind UDP socket to the given `SocketAddr`, and returns the UDP socket with `SO_REUSEADDR` and `SO_REUSEPORT` options.
+ /// This option is required to re-bind the socket address when the proxy instance is reconstructed.
+-pub(super) fn bind_udp_socket(listening_on: &SocketAddr) -> RpxyResult<UdpSocket> {
++pub(super) fn bind_udp_socket(listening_on: &SocketAddr, exclusive: bool) -> RpxyResult<UdpSocket> {
+   let domain = if listening_on.is_ipv6() { Domain::IPV6 } else { Domain::IPV4 };
+   let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
+   // address binding without dual stack
+@@ -64,9 +64,9 @@ pub(super) fn bind_udp_socket(listening_on: &SocketAddr) -> RpxyResult<UdpSocket
+     socket.set_only_v6(true)?;
+   }
+   socket.set_nonblocking(true)?; // This was made true inside quinn. so this line isn't necessary here. but just in case.
+-  socket.set_reuse_address(true)?; // This isn't necessary?
++  socket.set_reuse_address(!exclusive)?;
+   #[cfg(not(any(target_os = "solaris", target_os = "illumos", target_os = "cygwin", target_os = "wasi")))]
+-  socket.set_reuse_port(true)?;
++  socket.set_reuse_port(!exclusive)?;
+ 
+   socket.bind(&(*listening_on).into()).map_err(|e| {
+     error!("Failed to bind UDP socket: {}", e);
+diff --git a/rpxy-lib/src/proxy/proxy_quic_quinn.rs b/rpxy-lib/src/proxy/proxy_quic_quinn.rs
+--- a/rpxy-lib/src/proxy/proxy_quic_quinn.rs
++++ b/rpxy-lib/src/proxy/proxy_quic_quinn.rs
+@@ -56,7 +56,7 @@
+     let h3_connection_admission = ConnectionAdmission::new(h3_connection_limit);
+ 
+     // To reuse address
+-    let udp_socket = bind_udp_socket(&self.listener_spec.listening_on)?;
++    let udp_socket = bind_udp_socket(&self.listener_spec.listening_on, self.globals.proxy_config.h3_only)?;
+     let runtime = quinn::default_runtime().ok_or_else(|| std::io::Error::other("No async runtime found"))?;
+     let endpoint = Endpoint::new(quinn::EndpointConfig::default(), Some(server_config_h3), udp_socket, runtime)?;
+ 

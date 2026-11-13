@@ -13,8 +13,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Check Python and shell syntax
         run: |
-          python3 -m py_compile setup.py
-          bash -n scripts/build-rpxy.sh scripts/podman-lab.sh
+          python3 -m py_compile setup.py traefik_setup.py
+          bash -n scripts/*.sh
           sh -n tests/installer-scenarios.sh
       - name: Simulate installation and rollback in disposable containers
         shell: bash
@@ -23,7 +23,9 @@ jobs:
           for mode in success failure unsupported free modified foreign linger-decline linger-restart retry; do
             echo "Scenario: $mode"
             docker run --rm --network none \
-              -v "$PWD/setup.py:/fixtures/setup.py:ro" \
+              -v "$PWD:/fixtures:ro" \
               -v "$PWD/tests:/lab:ro" \
               --entrypoint sh python:3.13-alpine /lab/installer-scenarios.sh "$mode"
           done
+      - name: Test Traefik Compose changes, certificates and rollback safeguards
+        run: python3 -m unittest discover -s tests -v

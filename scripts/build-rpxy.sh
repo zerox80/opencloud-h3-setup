@@ -16,6 +16,8 @@ git -C "$source_dir" checkout --detach ba492b585fe86a279dbaab467d521f2af398027f
 git -C "$source_dir" submodule update --init --depth 1
 git -C "$source_dir" apply --check "$repo_dir/patches/rpxy-forks.patch"
 git -C "$source_dir" apply "$repo_dir/patches/rpxy-forks.patch"
+git -C "$source_dir" apply --check "$repo_dir/patches/rpxy-h3-only.patch"
+git -C "$source_dir" apply "$repo_dir/patches/rpxy-h3-only.patch"
 (
   cd "$source_dir"
   CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" cargo build --locked --release -p rpxy

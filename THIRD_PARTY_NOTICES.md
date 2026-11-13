@@ -11,3 +11,10 @@ their respective publishers using fixed digests.
 
 The source patch, build instructions and exact Git revisions used for the
 provided executable are included in this repository.
+
+## Traefik adapter dependency
+
+The Traefik adapter vendors the pure-Python `ruamel.yaml` 0.19.1 package under
+the MIT license. See `LICENSES/ruamel.yaml-MIT.txt` and `vendor/README.md` for the
+original license, download source and verified wheel checksum. It is bundled
+so users do not need to install Python packages globally.
