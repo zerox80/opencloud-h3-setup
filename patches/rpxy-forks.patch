@@ -1,0 +1,201 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index d7bb56f..119e758 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1019,8 +1019,7 @@ dependencies = [
+ [[package]]
+ name = "h3"
+ version = "0.0.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "10872b55cfb02a821b69dc7cf8dc6a71d6af25eb9a79662bec4a9d016056b3be"
++source = "git+https://github.com/zerox80/h3.git?branch=master#e186d95ab35a886fdf4cb4daf27670d17584f348"
+ dependencies = [
+  "bytes",
+  "fastrand",
+@@ -1034,14 +1033,12 @@ dependencies = [
+ [[package]]
+ name = "h3-quinn"
+ version = "0.0.10"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8b2e732c8d91a74731663ac8479ab505042fbf547b9a207213ab7fbcbfc4f8b4"
++source = "git+https://github.com/zerox80/h3.git?branch=master#e186d95ab35a886fdf4cb4daf27670d17584f348"
+ dependencies = [
+  "bytes",
+- "futures",
++ "futures-util",
+  "h3",
+- "quinn",
+- "tokio",
++ "quinn 0.12.0",
+  "tokio-util",
+ ]
+ 
+@@ -2009,13 +2006,32 @@ name = "quinn"
+ version = "0.11.12"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11"
++dependencies = [
++ "bytes",
++ "cfg_aliases",
++ "pin-project-lite",
++ "quinn-proto 0.11.19",
++ "quinn-udp 0.5.16",
++ "rustc-hash 2.1.3",
++ "rustls",
++ "socket2",
++ "thiserror 2.0.21",
++ "tokio",
++ "tracing",
++ "web-time",
++]
++
++[[package]]
++name = "quinn"
++version = "0.12.0"
++source = "git+https://github.com/zerox80/quinn.git?branch=main#c752d53293fcc000de5e09c634e1b25e20d54f5b"
+ dependencies = [
+  "bytes",
+  "cfg_aliases",
+  "futures-io",
+  "pin-project-lite",
+- "quinn-proto",
+- "quinn-udp",
++ "quinn-proto 0.12.0",
++ "quinn-udp 0.6.3",
+  "rustc-hash 2.1.3",
+  "rustls",
+  "socket2",
+@@ -2032,6 +2048,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
+ dependencies = [
+  "aws-lc-rs",
++ "bytes",
++ "getrandom 0.4.3",
++ "lru-slab",
++ "rand",
++ "rand_pcg",
++ "ring",
++ "rustc-hash 2.1.3",
++ "rustls",
++ "rustls-pki-types",
++ "slab",
++ "thiserror 2.0.21",
++ "tinyvec",
++ "tracing",
++ "web-time",
++]
++
++[[package]]
++name = "quinn-proto"
++version = "0.12.0"
++source = "git+https://github.com/zerox80/quinn.git?branch=main#c752d53293fcc000de5e09c634e1b25e20d54f5b"
++dependencies = [
+  "bytes",
+  "fastbloom",
+  "getrandom 0.4.3",
+@@ -2064,6 +2101,18 @@ dependencies = [
+  "windows-sys 0.61.2",
+ ]
+ 
++[[package]]
++name = "quinn-udp"
++version = "0.6.3"
++source = "git+https://github.com/zerox80/quinn.git?branch=main#c752d53293fcc000de5e09c634e1b25e20d54f5b"
++dependencies = [
++ "cfg_aliases",
++ "libc",
++ "socket2",
++ "tracing",
++ "windows-sys 0.61.2",
++]
++
+ [[package]]
+ name = "quote"
+ version = "1.0.47"
+@@ -2172,7 +2221,7 @@ dependencies = [
+  "log",
+  "percent-encoding",
+  "pin-project-lite",
+- "quinn",
++ "quinn 0.11.12",
+  "rustls",
+  "rustls-pki-types",
+  "rustls-platform-verifier",
+@@ -2299,7 +2348,7 @@ dependencies = [
+  "lru",
+  "pin-project-lite",
+  "ppp",
+- "quinn",
++ "quinn 0.12.0",
+  "rand",
+  "rpxy-acme",
+  "rpxy-certs",
+@@ -2960,7 +3009,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+ dependencies = [
+  "fastrand",
+- "getrandom 0.4.3",
++ "getrandom 0.3.4",
+  "once_cell",
+  "rustix",
+  "windows-sys 0.61.2",
+diff --git a/Cargo.toml b/Cargo.toml
+index 62eb188..d2658ad 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -19,6 +19,10 @@ members = [
+ exclude = ["submodules"]
+ resolver = "2"
+ 
++[patch.crates-io]
++h3 = { git = "https://github.com/zerox80/h3.git", branch = "master" }
++h3-quinn = { git = "https://github.com/zerox80/h3.git", branch = "master" }
++
+ [profile.release]
+ codegen-units = 1
+ incremental = false
+diff --git a/rpxy-lib/Cargo.toml b/rpxy-lib/Cargo.toml
+index 23c22e7..7eaf6e1 100644
+--- a/rpxy-lib/Cargo.toml
++++ b/rpxy-lib/Cargo.toml
+@@ -98,7 +98,7 @@ rpxy-acme = { path = "../rpxy-acme/", default-features = false, optional = true
+ tracing = { version = "0.1.44" }
+ 
+ # http/3
+-quinn = { version = "0.11.12", optional = true }
++quinn = { git = "https://github.com/zerox80/quinn.git", branch = "main", version = "0.12", optional = true }
+ h3 = { version = "0.0.8", features = ["tracing"], optional = true }
+ h3-quinn = { version = "0.0.10", optional = true }
+ s2n-quic = { version = "1.92.0", path = "../submodules/s2n-quic/quic/s2n-quic/", default-features = false, features = [
+diff --git a/rpxy-lib/src/proxy/proxy_quic_quinn.rs b/rpxy-lib/src/proxy/proxy_quic_quinn.rs
+index c8b910a..aaef0df 100644
+--- a/rpxy-lib/src/proxy/proxy_quic_quinn.rs
++++ b/rpxy-lib/src/proxy/proxy_quic_quinn.rs
+@@ -83,15 +83,18 @@ where
+           self.globals.runtime_handle.spawn(async move {
+             let _connection_permit = connection_permit;
+             let client_addr = connecting.remote_address();
+-            let Ok(hsd) = connecting.handshake_data().await else {
+-              return Ok(());
+-            };
+-            let Ok(hsd_downcast) = hsd.downcast::<HandshakeData>() else {
+-              return Ok(());
+-            };
+-            let Some(new_server_name) = hsd_downcast.server_name else {
+-              warn!("HTTP/3 no SNI is given");
+-              return Ok(());
++            let new_server_name = {
++              let Ok(hsd) = connecting.handshake_data().await else {
++                return Ok(());
++              };
++              let Ok(hsd_downcast) = hsd.downcast::<HandshakeData>() else {
++                return Ok(());
++              };
++              let Some(name) = hsd_downcast.server_name else {
++                warn!("HTTP/3 no SNI is given");
++                return Ok(());
++              };
++              name
+             };
+             debug!(
+               "HTTP/3 connection incoming (SNI {:?})",
